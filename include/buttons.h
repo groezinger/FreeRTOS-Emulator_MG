@@ -7,7 +7,8 @@ typedef enum{
     KEYBOARD_B = 4,
     KEYBOARD_C = 5,
     KEYBOARD_D = 6,
-    KEYBOARD_Q = 7
+    KEYBOARD_E = 7,
+    KEYBOARD_Q = 8
 } MY_CODES;
 
 //struct to save all attributes of a single button
@@ -46,4 +47,6 @@ bool debounceButton(my_button_t* my_button, int reading);
 /* function to take desired action for the single buttons when they have been pressed/not pressed
 paramter: my_button_t* my_used_buttons: array of my_button_t with all the used buttons. Single button can be accessed for example by [KEYBOARD_A] = [3]
 returns: nothing */
-void evaluateButtons(my_button_t* my_used_buttons);
+void evaluateButtons(bool* end_task_flag);
+
+int getButtonCounter(MY_CODES code);

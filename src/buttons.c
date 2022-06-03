@@ -23,7 +23,10 @@
 #include "buttons.h"
 
 #define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
+
 static buttons_buffer_t buttons = { 0 };
+static my_button_t my_used_buttons[9];
+
 void xGetButtonInput()
 {
     if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
@@ -33,6 +36,12 @@ void xGetButtonInput()
 }
 
 int buttonLockInit(){
+    for(int i=0; i< sizeof(my_used_buttons)/ sizeof(my_button_t); i++){
+        my_used_buttons[i].last_debounce_time=0;
+        my_used_buttons[i].counter=0;
+        my_used_buttons[i].button_state=false;
+        my_used_buttons[i].last_button_state=false;
+    }
     buttons.lock = xSemaphoreCreateMutex(); // Locking mechanism
     if (!buttons.lock) {
         return 0;
@@ -63,7 +72,7 @@ bool debounceButton(my_button_t* my_button, int reading){
     return return_value;
 }
 
-void evaluateButtons(my_button_t* my_used_buttons){
+void evaluateButtons(bool* end_task_flag){
     if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
         if(debounceButton(&my_used_buttons[KEYBOARD_A], buttons.buttons[KEYCODE(A)])){
             my_used_buttons[KEYBOARD_A].counter +=1;
@@ -77,10 +86,12 @@ void evaluateButtons(my_button_t* my_used_buttons){
         if(debounceButton(my_used_buttons+KEYBOARD_D, buttons.buttons[KEYCODE(D)])){
             my_used_buttons[KEYBOARD_D].counter +=1;
         }
+        if(debounceButton(my_used_buttons+KEYBOARD_E, buttons.buttons[KEYCODE(E)])){
+            *end_task_flag = true;
+        }
         if(debounceButton(my_used_buttons+KEYBOARD_Q, buttons.buttons[KEYCODE(Q)])){
             exit(EXIT_SUCCESS);
-        }      
-        xSemaphoreGive(buttons.lock);         
+        }              
     }
     if(debounceButton(&my_used_buttons[MOUSE_LEFT], tumEventGetMouseLeft())
                 || debounceButton(&my_used_buttons[MOUSE_MIDDLE], tumEventGetMouseMiddle()) 
@@ -90,5 +101,9 @@ void evaluateButtons(my_button_t* my_used_buttons){
         my_used_buttons[KEYBOARD_C].counter = 0;
         my_used_buttons[KEYBOARD_D].counter = 0;
     }
+    xSemaphoreGive(buttons.lock); 
+}
 
+int getButtonCounter(MY_CODES code){
+    return my_used_buttons[code].counter;
 }
