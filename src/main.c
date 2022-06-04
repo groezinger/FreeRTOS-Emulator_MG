@@ -27,10 +27,95 @@
 #define mainGENERIC_STACK_SIZE ((unsigned short)2560)
 #define PI 3.141
 #define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
+#define FPS_AVERAGE_COUNT 50
+#define FPS_FONT "IBMPlexSans-Bold.ttf"
+
 static TaskHandle_t TaskTwo = NULL;
 static TaskHandle_t CircleBlinkOne = NULL;
 static TaskHandle_t CircleBlinkTwo = NULL;
 static SemaphoreHandle_t my_lock = NULL;
+static StaticTask_t xBlinkTwoTCB;
+static StackType_t uxBlinkTwoStack[ 200 ];
+
+void vDrawFPS(void)
+{
+    static unsigned int periods[FPS_AVERAGE_COUNT] = { 0 };
+    static unsigned int periods_total = 0;
+    static unsigned int index = 0;
+    static unsigned int average_count = 0;
+    static TickType_t xLastWakeTime = 0, prevWakeTime = 0;
+    static char str[10] = { 0 };
+    static int text_width;
+    int fps = 0;
+    font_handle_t cur_font = tumFontGetCurFontHandle();
+
+    if (average_count < FPS_AVERAGE_COUNT) {
+        average_count++;
+    }
+    else {
+        periods_total -= periods[index];
+    }
+
+    xLastWakeTime = xTaskGetTickCount();
+
+    if (prevWakeTime != xLastWakeTime) {
+        periods[index] =
+            configTICK_RATE_HZ / (xLastWakeTime - prevWakeTime);
+        prevWakeTime = xLastWakeTime;
+    }
+    else {
+        periods[index] = 0;
+    }
+
+    periods_total += periods[index];
+
+    if (index == (FPS_AVERAGE_COUNT - 1)) {
+        index = 0;
+    }
+    else {
+        index++;
+    }
+
+    fps = periods_total / average_count;
+
+    tumFontSelectFontFromName(FPS_FONT);
+
+    sprintf(str, "FPS: %2d", fps);
+
+    if (!tumGetTextSize((char *)str, &text_width, NULL))
+        tumDrawText(str, SCREEN_WIDTH - text_width - 10,
+                              SCREEN_HEIGHT - DEFAULT_FONT_SIZE * 1.5,
+                              Skyblue);
+    tumFontSelectFontFromHandle(cur_font);
+    tumFontPutFontHandle(cur_font);
+}
+
+
+void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
+                                    StackType_t **ppxIdleTaskStackBuffer,
+                                    uint32_t *pulIdleTaskStackSize )
+{
+    /* If the buffers to be provided to the Idle task are declared inside this
+    function then they must be declared static - otherwise they will be allocated on
+    the stack and so not exists after this function exits. */
+    static StaticTask_t xIdleTaskTCB;
+    static StackType_t uxIdleTaskStack[ 200 ];
+    /* Pass out a pointer to the StaticTask_t structure in which the Idle task's
+    state will be stored. */
+    *ppxIdleTaskTCBBuffer = &xIdleTaskTCB;
+
+    /* Pass out the array that will be used as the Idle task's stack. */
+    *ppxIdleTaskStackBuffer = uxIdleTaskStack;
+
+    /* Pass out the size of the array pointed to by *ppxIdleTaskStackBuffer.
+    Note that, as the array is necessarily of type StackType_t,
+    configMINIMAL_STACK_SIZE is specified in words, not bytes. */
+    *pulIdleTaskStackSize = 200;
+}
+
+void DrawingTask(void *pvParameters){
+    tumDrawBindThread();
+}
 
 void vCircleBlinkOne(void *pvParameters){
     printf("Start One \n");
@@ -45,9 +130,11 @@ void vCircleBlinkOne(void *pvParameters){
             // given back then no other task can access the reseource.
         evaluateButtons(&end_task_flag); //evaluate Pressed Buttons
         tumDrawCircle(SCREEN_WIDTH/4, SCREEN_HEIGHT/2, SCREEN_HEIGHT/4, White);
+        vDrawFPS();
         tumDrawUpdateScreen();
         vTaskDelay((TickType_t)250);
         tumDrawCircle(SCREEN_WIDTH/4, SCREEN_HEIGHT/2, SCREEN_HEIGHT/4, Pink);
+        vDrawFPS();
         tumDrawUpdateScreen();
         vTaskDelay((TickType_t)250);
     }
@@ -73,6 +160,8 @@ void vTaskTwo(void *pvParameters)
     static int mouse_x;
     static int mouse_y;
     static bool end_task_flag = false;
+    TickType_t xLastWakeTime;
+    const TickType_t frameratePeriod = 20;
     extern SDL_Window *window;
 
     coord_t triangle_coords[3];
@@ -91,6 +180,7 @@ void vTaskTwo(void *pvParameters)
 
     while (1) {
         if(xSemaphoreTake(my_lock, portMAX_DELAY)==pdTRUE){
+            xLastWakeTime = xTaskGetTickCount();
             tumDrawBindThread();
             end_task_flag = false;
             tumEventFetchEvents(FETCH_EVENT_NONBLOCK); // Query events backend for new events, ie. button presses
@@ -129,7 +219,7 @@ void vTaskTwo(void *pvParameters)
                             SCREEN_WIDTH/2 - my_moving_string_width/2 + cos(rotatingvalue)*my_moving_string_width/4,
                             SCREEN_HEIGHT *1/12 - DEFAULT_FONT_SIZE / 2,
                             TUMBlue);
-
+            vDrawFPS();
             tumDrawUpdateScreen(); // Refresh the screen to draw elements
             if(end_task_flag){
                 vTaskResume(CircleBlinkOne);
@@ -138,7 +228,7 @@ void vTaskTwo(void *pvParameters)
                 vTaskSuspend(TaskTwo);
             }
             // Basic sleep of 20 milliseconds
-            vTaskDelay((TickType_t)20);
+            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(frameratePeriod));
             xSemaphoreGive(my_lock);
             rotatingvalue += 0.025;
         }
@@ -180,8 +270,9 @@ int main(int argc, char *argv[])
                     1, &CircleBlinkOne) != pdPASS) {
         goto err_demotask;
     }
-    if (xTaskCreate(vCircleBlinkTwo, "CircleBlinkTwo", mainGENERIC_STACK_SIZE * 2, NULL,
-                    2, &CircleBlinkTwo) != pdPASS) {
+    CircleBlinkTwo= xTaskCreateStatic(vCircleBlinkTwo, "CircleBlinkTwo", 200, NULL,
+                    2, uxBlinkTwoStack, &xBlinkTwoTCB);
+    if (CircleBlinkTwo == NULL){
         goto err_demotask;
     }
     vTaskSuspend(CircleBlinkOne);
