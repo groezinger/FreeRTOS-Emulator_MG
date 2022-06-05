@@ -29,7 +29,7 @@ static my_button_t my_used_buttons[9];
 
 void xGetButtonInput()
 {
-    if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+    if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
         xQueueReceive(buttonInputQueue, &buttons.buttons, 0);
         xSemaphoreGive(buttons.lock);
     }
@@ -42,7 +42,8 @@ int buttonLockInit(){
         my_used_buttons[i].button_state=false;
         my_used_buttons[i].last_button_state=false;
     }
-    buttons.lock = xSemaphoreCreateMutex(); // Locking mechanism
+    buttons.lock = xSemaphoreCreateMutex();
+    xSemaphoreGive(buttons.lock); // Locking mechanism
     if (!buttons.lock) {
         return 0;
     }
@@ -72,8 +73,8 @@ bool debounceButton(my_button_t* my_button, int reading){
     return return_value;
 }
 
-void evaluateButtons(bool* end_task_flag){
-    if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+void evaluateButtons(){
+    if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
         if(debounceButton(&my_used_buttons[KEYBOARD_A], buttons.buttons[KEYCODE(A)])){
             my_used_buttons[KEYBOARD_A].counter +=1;
         }
@@ -87,7 +88,16 @@ void evaluateButtons(bool* end_task_flag){
             my_used_buttons[KEYBOARD_D].counter +=1;
         }
         if(debounceButton(my_used_buttons+KEYBOARD_E, buttons.buttons[KEYCODE(E)])){
-            *end_task_flag = true;
+            my_used_buttons[KEYBOARD_E].counter +=1;
+        }
+        if(debounceButton(my_used_buttons+KEYBOARD_K, buttons.buttons[KEYCODE(K)])){
+            my_used_buttons[KEYBOARD_K].counter +=1;
+        }
+        if(debounceButton(my_used_buttons+KEYBOARD_L, buttons.buttons[KEYCODE(L)])){
+            my_used_buttons[KEYBOARD_L].counter +=1;
+        }
+        if(debounceButton(my_used_buttons+KEYBOARD_J, buttons.buttons[KEYCODE(J)])){
+            my_used_buttons[KEYBOARD_J].counter +=1;
         }
         if(debounceButton(my_used_buttons+KEYBOARD_Q, buttons.buttons[KEYCODE(Q)])){
             exit(EXIT_SUCCESS);
@@ -105,5 +115,27 @@ void evaluateButtons(bool* end_task_flag){
 }
 
 int getButtonCounter(MY_CODES code){
-    return my_used_buttons[code].counter;
+    if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
+        int reading = my_used_buttons[code].counter;
+        xSemaphoreGive(buttons.lock);
+        return reading;
+    }
+    return 0;
 }
+
+int getButtonState(MY_CODES code){
+    if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
+        int reading = my_used_buttons[code].button_state;
+        xSemaphoreGive(buttons.lock);
+        return reading;
+    }
+    return 0;
+}
+
+void resetButtonCounter(MY_CODES code){
+    if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
+        my_used_buttons[code].counter = 0;
+        xSemaphoreGive(buttons.lock);
+    }
+}
+
