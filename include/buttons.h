@@ -20,6 +20,7 @@ typedef struct my_button{
     int counter;
     bool button_state;
     bool last_button_state;
+    bool new_press;
 } my_button_t;
 
 //buttons buffer to evaluate of input

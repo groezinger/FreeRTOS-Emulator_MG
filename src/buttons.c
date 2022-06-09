@@ -61,11 +61,12 @@ bool debounceButton(my_button_t* my_button, int reading){
     if (reading != my_button->last_button_state){
         my_button->last_debounce_time = xTaskGetTickCount();
     }
-    if((xTaskGetTickCount() - my_button->last_debounce_time)>100){
+    if((xTaskGetTickCount() - my_button->last_debounce_time)>50){
         if(reading != my_button->button_state){
             my_button->button_state = reading;
             if(my_button->button_state){
                 return_value = true;
+                my_button->counter +=1;
             }
         }
     }
@@ -75,30 +76,14 @@ bool debounceButton(my_button_t* my_button, int reading){
 
 void evaluateButtons(){
     if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
-        if(debounceButton(&my_used_buttons[KEYBOARD_A], buttons.buttons[KEYCODE(A)])){
-            my_used_buttons[KEYBOARD_A].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_B, buttons.buttons[KEYCODE(B)])){
-            my_used_buttons[KEYBOARD_B].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_C, buttons.buttons[KEYCODE(C)])){
-            my_used_buttons[KEYBOARD_C].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_D, buttons.buttons[KEYCODE(D)])){
-            my_used_buttons[KEYBOARD_D].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_E, buttons.buttons[KEYCODE(E)])){
-            my_used_buttons[KEYBOARD_E].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_K, buttons.buttons[KEYCODE(K)])){
-            my_used_buttons[KEYBOARD_K].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_L, buttons.buttons[KEYCODE(L)])){
-            my_used_buttons[KEYBOARD_L].counter +=1;
-        }
-        if(debounceButton(my_used_buttons+KEYBOARD_J, buttons.buttons[KEYCODE(J)])){
-            my_used_buttons[KEYBOARD_J].counter +=1;
-        }
+        my_used_buttons[KEYBOARD_A].new_press = debounceButton(&my_used_buttons[KEYBOARD_A], buttons.buttons[KEYCODE(A)]);
+        my_used_buttons[KEYBOARD_B].new_press = debounceButton(&my_used_buttons[KEYBOARD_B], buttons.buttons[KEYCODE(B)]);
+        my_used_buttons[KEYBOARD_C].new_press = debounceButton(&my_used_buttons[KEYBOARD_C], buttons.buttons[KEYCODE(C)]);
+        my_used_buttons[KEYBOARD_D].new_press = debounceButton(&my_used_buttons[KEYBOARD_D], buttons.buttons[KEYCODE(D)]);
+        my_used_buttons[KEYBOARD_E].new_press = debounceButton(&my_used_buttons[KEYBOARD_E], buttons.buttons[KEYCODE(E)]);
+        my_used_buttons[KEYBOARD_J].new_press = debounceButton(&my_used_buttons[KEYBOARD_J], buttons.buttons[KEYCODE(J)]);
+        my_used_buttons[KEYBOARD_K].new_press = debounceButton(&my_used_buttons[KEYBOARD_K], buttons.buttons[KEYCODE(K)]);
+        my_used_buttons[KEYBOARD_L].new_press = debounceButton(&my_used_buttons[KEYBOARD_L], buttons.buttons[KEYCODE(L)]);
         if(debounceButton(my_used_buttons+KEYBOARD_Q, buttons.buttons[KEYCODE(Q)])){
             exit(EXIT_SUCCESS);
         }              
@@ -125,7 +110,7 @@ int getButtonCounter(MY_CODES code){
 
 int getButtonState(MY_CODES code){
     if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
-        int reading = my_used_buttons[code].button_state;
+        int reading = my_used_buttons[code].new_press;
         xSemaphoreGive(buttons.lock);
         return reading;
     }

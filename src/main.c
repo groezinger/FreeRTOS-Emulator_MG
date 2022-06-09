@@ -46,7 +46,7 @@ static TaskHandle_t FourFour = NULL;
 static TaskHandle_t OutputTask = NULL;
 static SemaphoreHandle_t ScreenLock = NULL;
 static SemaphoreHandle_t StartCounterOne = NULL;
-static SemaphoreHandle_t QueueLock = NULL;
+static SemaphoreHandle_t TaskThreeLock = NULL;
 static SemaphoreHandle_t StopFourTimer = NULL;
 static TimerHandle_t ResetCounter = NULL;
 static QueueHandle_t OutputQueue = NULL;
@@ -68,15 +68,17 @@ void vFourTwo(void *pvParameters){
     xLastWakeTime = xTaskGetTickCount();
     while(1){
         xQueueSend(OutputQueue, &two, portMAX_DELAY);
+        xSemaphoreGive(TaskThreeLock);
         vTaskDelayUntil(&xLastWakeTime, (TickType_t)2);
     }
 }
 
 void vFourThree(void *pvParameters){
     static char three = '3';
-    xQueueSend(OutputQueue, &three, portMAX_DELAY);
     while(1){
-        vTaskDelay((TickType_t)2000);
+        if(xSemaphoreTake(TaskThreeLock, portMAX_DELAY)==pdTRUE){
+            xQueueSend(OutputQueue, &three, portMAX_DELAY);
+        }
     }
 }
 
@@ -105,8 +107,8 @@ void vOutputTask(void *pvParameters){
     while (1) {
         if(line_counter < 15){
             sprintf(output_string, "Tick %u:", line_counter+1);
-            for(int i = 0; xQueueReceive(OutputQueue, &number_output[i], 0)==pdTRUE; i++){
-                printf("handling number %c \n", number_output[i]);
+            for(int i = 0; (xQueueReceive(OutputQueue, &number_output[i], 0)==pdTRUE) && i<4; i++){
+                //do nothing except copying queuevalues to
             }
             if (xSemaphoreTake(ScreenLock, portMAX_DELAY) == pdTRUE) {
                     tumDrawText(output_string, SCREEN_WIDTH/4,
@@ -118,7 +120,7 @@ void vOutputTask(void *pvParameters){
                 xSemaphoreGive(ScreenLock);
             }
             line_counter +=1;
-        memset(number_output, 0, strlen(number_output));
+            memset(number_output, 0, strlen(number_output));
         }
         vTaskDelayUntil(&xLastWakeTime,(TickType_t)1);
     }
@@ -132,7 +134,7 @@ void vResetButtonCounter(void *pvParameters){
 void vStopFour(void *pvParameters){
     vTaskSuspend(FourOne);
     vTaskSuspend(FourTwo);
-    //vTaskSuspend(FourThree);
+    vTaskSuspend(FourThree);
     vTaskSuspend(FourFour);
 }
 
@@ -242,6 +244,7 @@ void vDrawTask(void *pvParameters)
     static TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
     const TickType_t frameratePeriod = 20;
+    static int task_is_running=1;
 
     tumDrawBindThread(); // Setup Rendering handle with correct GL context
 
@@ -254,20 +257,15 @@ void vDrawTask(void *pvParameters)
         evaluateButtons(); //evaluate Pressed Buttons
         if (xSemaphoreTake(ScreenLock, portMAX_DELAY) == pdTRUE) {
             tumEventFetchEvents(FETCH_EVENT_BLOCK);
-            vDrawFPS();
-            tumDrawUpdateScreen();
-            xSemaphoreGive(ScreenLock);
-            vTaskDelayUntil(&xLastWakeTime,
-                            pdMS_TO_TICKS(frameratePeriod));
-        }
-    }
-}
-
-void vCircleBlinkOne(void *pvParameters){
-    static int task_is_running=1;
-    while(1){
-        if(xSemaphoreTake(ScreenLock, portMAX_DELAY)==pdTRUE){
-            tumDrawCircle(SCREEN_WIDTH/4, SCREEN_HEIGHT/2, SCREEN_HEIGHT/4, White);
+            if(getButtonCounter(KEYBOARD_E)==1 && getButtonState(KEYBOARD_E)==1){
+                vTaskResume(CircleBlinkOne);
+                vTaskResume(CircleBlinkTwo);
+                vTaskResume(IncreasingVariable);
+                xTimerStart(ResetCounter, portMAX_DELAY);
+                tumDrawClear(White);
+                xSemaphoreGive(ScreenLock);
+                vTaskSuspend(TaskTwo);
+            }
             if(getButtonState(KEYBOARD_L)){
                 xSemaphoreGive(StartCounterOne);
             }
@@ -284,20 +282,31 @@ void vCircleBlinkOne(void *pvParameters){
                     task_is_running=0;
                 }
             }
-            if(getButtonCounter(KEYBOARD_E)==2){
-                tumDrawClear(White);
+            if(getButtonCounter(KEYBOARD_E)==2 && getButtonState(KEYBOARD_E)==1){
                 vTaskSuspend(CircleBlinkTwo);
                 vTaskSuspend(TaskButtonCounterOne);
                 vTaskSuspend(TaskButtonCounterTwo);
                 vTaskSuspend(IncreasingVariable);
+                vTaskSuspend(CircleBlinkOne);
                 vTaskResume(FourOne);
                 vTaskResume(FourTwo);
-                //vTaskResume(FourThree);
+                vTaskResume(FourThree);
                 vTaskResume(FourFour);
                 vTaskResume(OutputTask);
-                xSemaphoreGive(ScreenLock);
-                vTaskSuspend(CircleBlinkOne);
             }
+            vDrawFPS();
+            tumDrawUpdateScreen();
+            xSemaphoreGive(ScreenLock);
+            vTaskDelayUntil(&xLastWakeTime,
+                            pdMS_TO_TICKS(frameratePeriod));
+        }
+    }
+}
+
+void vCircleBlinkOne(void *pvParameters){
+    while(1){
+        if(xSemaphoreTake(ScreenLock, portMAX_DELAY)==pdTRUE){
+            tumDrawCircle(SCREEN_WIDTH/4, SCREEN_HEIGHT/2, SCREEN_HEIGHT/4, White);
             xSemaphoreGive(ScreenLock);
         }
         vTaskDelay((TickType_t)250);
@@ -389,10 +398,9 @@ void vIncreasingVariable(void *pvParameters){
                             SCREEN_HEIGHT *1/12 - DEFAULT_FONT_SIZE / 2,
                             TUMBlue);
             }
+            my_variable+=1;
             xSemaphoreGive(ScreenLock);
         }
-        my_variable+=1;
-        
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
@@ -446,15 +454,6 @@ void vTaskTwo(void *pvParameters)
                             SCREEN_WIDTH/2 - my_moving_string_width/2 + cos(rotatingvalue)*my_moving_string_width/4,
                             SCREEN_HEIGHT *1/12 - DEFAULT_FONT_SIZE / 2,
                             TUMBlue);
-            if(getButtonState(KEYBOARD_E)){
-                vTaskResume(CircleBlinkOne);
-                vTaskResume(CircleBlinkTwo);
-                vTaskResume(IncreasingVariable);
-                xTimerStart(ResetCounter, portMAX_DELAY);
-                tumDrawClear(White);
-                xSemaphoreGive(ScreenLock);
-                vTaskSuspend(TaskTwo);
-            }
             xSemaphoreGive(ScreenLock);
             vTaskDelay((TickType_t) 20);
             rotatingvalue += 0.025;
@@ -489,93 +488,146 @@ int main(int argc, char *argv[])
     }
     if (xTaskCreate(vDrawTask, "DrawTask", mainGENERIC_STACK_SIZE*2, NULL,
                     configMAX_PRIORITIES, &DrawTask) != pdPASS) {
-        goto err_demotask;
+        goto err_draw_task;
     }
 
     if (xTaskCreate(vTaskTwo, "TaskTwo", mainGENERIC_STACK_SIZE*2, NULL,
                     mainGENERIC_PRIORITY, &TaskTwo) != pdPASS) {
-        goto err_demotask;
+        goto err_task_two;
     }
 
     if (xTaskCreate(vCircleBlinkOne, "CircleBlinkOne", mainGENERIC_STACK_SIZE * 2, NULL,
                     configMAX_PRIORITIES-1, &CircleBlinkOne) != pdPASS) {
-        goto err_demotask;
+        goto err_circle_blink_one;
     }
 
     CircleBlinkTwo= xTaskCreateStatic(vCircleBlinkTwo, "CircleBlinkTwo", 200, NULL,
                     configMAX_PRIORITIES-2, uxBlinkTwoStack, &xBlinkTwoTCB);
     if (CircleBlinkTwo == NULL){
-        goto err_demotask;
+        goto err_circle_blink_two;
     }
 
     if (xTaskCreate(vTaskButtonCounterOne, "ButtonCounterOne", mainGENERIC_STACK_SIZE * 2, NULL,
                     configMAX_PRIORITIES-1, &TaskButtonCounterOne) != pdPASS) {
-        goto err_demotask;
+        goto err_task_button_counter_one;
     }
 
     if (xTaskCreate(vTaskButtonCounterTwo, "ButtonCounterTwo", mainGENERIC_STACK_SIZE * 2, NULL,
                     configMAX_PRIORITIES-2, &TaskButtonCounterTwo) != pdPASS) {
-        goto err_demotask;
+        goto err_task_button_counter_two;
     }
 
     if (xTaskCreate(vIncreasingVariable, "IncreasingVariable", mainGENERIC_STACK_SIZE * 2, NULL,
                     configMAX_PRIORITIES-2, &IncreasingVariable) != pdPASS) {
-        goto err_demotask;
+        goto err_increasing_variable;
     }
 
     if (xTaskCreate(vFourOne, "FourOne", mainGENERIC_STACK_SIZE * 2, NULL,
-                    2, &FourOne) != pdPASS) {
-        goto err_demotask;
+                    1, &FourOne) != pdPASS) {
+        goto err_four_one;
     }
 
     if (xTaskCreate(vFourTwo, "FourTwo", mainGENERIC_STACK_SIZE * 2, NULL,
-                    3, &FourTwo) != pdPASS) {
-        goto err_demotask;
+                    2, &FourTwo) != pdPASS) {
+        goto err_four_two;
     }
 
-    /*if (xTaskCreate(vFourThree, "FourThree", mainGENERIC_STACK_SIZE * 2, NULL,
-                    4, &FourThree) != pdPASS) {
-        goto err_demotask;
-    }*/
+    if (xTaskCreate(vFourThree, "FourThree", mainGENERIC_STACK_SIZE * 2, NULL,
+                    3, &FourThree) != pdPASS) {
+        goto err_four_three;
+    }
 
     if (xTaskCreate(vFourFour, "FourFour", mainGENERIC_STACK_SIZE * 2, NULL,
-                    5, &FourFour) != pdPASS) {
-        goto err_demotask;
+                    4, &FourFour) != pdPASS) {
+        goto err_four_four;
     }
 
     if (xTaskCreate(vOutputTask, "OutputTask", mainGENERIC_STACK_SIZE * 2, NULL,
-                    2, &OutputTask) != pdPASS) {
-        goto err_demotask;
+                    mainGENERIC_PRIORITY, &OutputTask) != pdPASS) {
+        goto err_output_task;
     }
-    StopFourTimer=xTimerCreate("StopFourTimer", (TickType_t)1600,
-                                    pdFALSE, ( void * ) 0, vStopFour); 
+    StopFourTimer=xTimerCreate("StopFourTimer", (TickType_t)16,
+                                    pdFALSE, ( void * ) 0, vStopFour);
+    if(StopFourTimer==NULL){
+        goto err_stop_four_timer;
+    }
     ResetCounter=xTimerCreate("ButtonResetTimer", pdMS_TO_TICKS(15000),
-                                    pdTRUE, ( void * ) 0, vResetButtonCounter); 
-    OutputQueue = xQueueCreate(4, sizeof(char));
+                                    pdTRUE, ( void * ) 0, vResetButtonCounter);
+    if(ResetCounter==NULL){
+        goto err_reset_counter;
+    }
+    OutputQueue = xQueueCreate(5, sizeof(char));
+    if(OutputQueue==NULL){
+        goto err_output_queue;
+    }
+    ScreenLock = xSemaphoreCreateMutex();
+    if(ScreenLock==NULL){
+        goto err_screen_lock;
+    }
+    TaskThreeLock = xSemaphoreCreateBinary();
+    if(TaskThreeLock==NULL){
+        goto err_task_three_lock;
+    }
+    StartCounterOne = xSemaphoreCreateBinary();
+    if(StartCounterOne==NULL){
+        goto err_start_counter_one;
+    }
     vTaskSuspend(CircleBlinkOne);
     vTaskSuspend(CircleBlinkTwo);
     vTaskSuspend(IncreasingVariable);
     vTaskSuspend(FourOne);
     vTaskSuspend(FourTwo);
-    //vTaskSuspend(FourThree);
+    vTaskSuspend(FourThree);
     vTaskSuspend(FourFour);
     vTaskSuspend(OutputTask);
-    ScreenLock = xSemaphoreCreateMutex();
-    QueueLock = xSemaphoreCreateMutex();
-    StartCounterOne = xSemaphoreCreateBinary();
     vTaskStartScheduler();
 
     return EXIT_SUCCESS;
 
-err_demotask:
-    buttonLockExit();
-err_buttons_lock:
-    tumSoundExit();
-err_init_audio:
-    tumEventExit();
-err_init_events:
-    tumDrawExit();
-err_init_drawing:
+
+    err_start_counter_one:
+        vSemaphoreDelete(TaskThreeLock);
+    err_task_three_lock:
+        vSemaphoreDelete(ScreenLock);
+    err_screen_lock:
+        vQueueDelete(OutputQueue);
+    err_output_queue:
+        xTimerDelete(ResetCounter, portMAX_DELAY);
+    err_reset_counter:
+        xTimerDelete(StopFourTimer, portMAX_DELAY);
+    err_stop_four_timer:
+        vTaskDelete(OutputTask);
+    err_output_task:
+        vTaskDelete(FourFour);
+    err_four_four:
+        vTaskDelete(FourThree);
+    err_four_three:
+        vTaskDelete(FourTwo);
+    err_four_two:
+        vTaskDelete(FourOne);
+    err_four_one:
+        vTaskDelete(IncreasingVariable);
+    err_increasing_variable:
+        vTaskDelete(TaskButtonCounterTwo);
+    err_task_button_counter_two:
+        vTaskDelete(TaskButtonCounterOne);
+    err_task_button_counter_one:
+        vTaskDelete(CircleBlinkTwo);
+    err_circle_blink_two:
+        vTaskDelete(CircleBlinkOne);
+    err_circle_blink_one:
+        vTaskDelete(TaskTwo);
+    err_task_two:
+        vTaskDelete(DrawTask);
+    err_draw_task:
+        buttonLockExit();
+    err_buttons_lock:
+        tumSoundExit();
+    err_init_audio:
+        tumEventExit();
+    err_init_events:
+        tumDrawExit();
+    err_init_drawing:
     return EXIT_FAILURE;
 }
 
