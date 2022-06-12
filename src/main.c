@@ -129,6 +129,8 @@ void vOutputTask(void *pvParameters){
 void vResetButtonCounter(void *pvParameters){
     resetButtonCounter(KEYBOARD_K);
     resetButtonCounter(KEYBOARD_L);
+    xSemaphoreGive(StartCounterOne);
+    xTaskNotifyGive(TaskButtonCounterTwo);
 }
 
 void vStopFour(void *pvParameters){
@@ -261,26 +263,30 @@ void vDrawTask(void *pvParameters)
                 vTaskResume(CircleBlinkOne);
                 vTaskResume(CircleBlinkTwo);
                 vTaskResume(IncreasingVariable);
+                resetButtonCounter(KEYBOARD_K);
+                resetButtonCounter(KEYBOARD_L);
                 xTimerStart(ResetCounter, portMAX_DELAY);
                 tumDrawClear(White);
                 xSemaphoreGive(ScreenLock);
                 vTaskSuspend(TaskTwo);
             }
-            if(getButtonState(KEYBOARD_L)){
-                xSemaphoreGive(StartCounterOne);
-            }
-            if(getButtonState(KEYBOARD_K)){
-                xTaskNotifyGive(TaskButtonCounterTwo);
-            }
-            if(getButtonState(KEYBOARD_J)){
-                if(!task_is_running){
-                    vTaskResume(IncreasingVariable);
-                    task_is_running=1;
+            if(getButtonCounter(KEYBOARD_E)==1){
+                if(getButtonState(KEYBOARD_L)){
+                    xSemaphoreGive(StartCounterOne);
                 }
-                else{
-                    vTaskSuspend(IncreasingVariable);
-                    task_is_running=0;
+                if(getButtonState(KEYBOARD_K)){
+                    xTaskNotifyGive(TaskButtonCounterTwo);
                 }
+                if(getButtonState(KEYBOARD_J)){
+                    if(!task_is_running){
+                        vTaskResume(IncreasingVariable);
+                        task_is_running=1;
+                    }
+                    else{
+                        vTaskSuspend(IncreasingVariable);
+                        task_is_running=0;
+                    }
+                }            
             }
             if(getButtonCounter(KEYBOARD_E)==2 && getButtonState(KEYBOARD_E)==1){
                 vTaskSuspend(CircleBlinkTwo);
@@ -352,17 +358,15 @@ void vTaskButtonCounterOne(void *pvParameters){
                 }
                 xSemaphoreGive(ScreenLock);
             }
-            vTaskDelay((TickType_t)20);
-            xSemaphoreGive(StartCounterOne);
         }
     }
 }
 
 void vTaskButtonCounterTwo(void *pvParameters){
-    ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
     static char my_string[100];
     static int my_string_width = 0;
     while(1){
+        ulTaskNotifyTake( pdTRUE, portMAX_DELAY );
         sprintf(my_string, "K was pressed %u times", //print number of times each button has been pressed
                 getButtonCounter(KEYBOARD_K));
         if(xSemaphoreTake(ScreenLock, portMAX_DELAY)==pdTRUE){
@@ -377,7 +381,6 @@ void vTaskButtonCounterTwo(void *pvParameters){
             }
             xSemaphoreGive(ScreenLock);
         }
-        vTaskDelay((TickType_t)20);
     }
 }
 
