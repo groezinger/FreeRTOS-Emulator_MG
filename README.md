@@ -2,6 +2,9 @@
 
 Exercises 2-4 for ESPL Course by Maximilian Groezinger
 
+## Link to Git-Tutorial (Exercise 1)
+https://github.com/groezinger/git-tutorial_MG
+
 ## Which Buttons to press?
 Switch between Tasks by pressing E and Q to quit.
 In Task 2 you can increase the counter of Buttons A,B,C and D and reset them with any mouse button. 
